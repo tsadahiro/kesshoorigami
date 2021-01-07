@@ -1,0 +1,11 @@
+<template>
+<g>
+  <polygon :points="points" fill="palegreen" fill-opacity="1" stroke="black"></polygon>
+</g>
+</template>
+
+<script>
+export default{
+  props:['points']  
+}
+</script>

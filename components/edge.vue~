@@ -1,0 +1,14 @@
+<template>
+<g>
+  <line :x1="edge.from.x" :y1="edge.from.y"
+	:x2="edge.to.x" :y2="edge.to.y"
+	:stroke="edge.col"
+	></line>
+</g>
+</template>
+
+<script>
+export default{
+  props:['edge']  
+}
+</script>
