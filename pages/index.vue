@@ -28,14 +28,14 @@ export default {
     data(){
 	return {
 	    subdivided: false,
-            V:null,
-            E:null,
-            F:null,
-	    mountain:null,
-	    directions:null,
-	    faceup:null,
-	    cover:null,
-	    lower:null,
+            V:null,//頂点データ (x,y)
+            E:null,//辺データ [from ,to]
+            F:null,//面データ 辺のindexの集合
+	    mountain:null, //山折り:true 谷折り:false
+	    directions:null,//各面が順: true , 逆: false
+	    faceup:null,//表向き: true, 裏向き: false,
+	    cover:null,//上に来る面のindex
+	    lower:null,//下に来る面のindex
 	    oV: null,
 	    oE: null,
 	    oF: null,
