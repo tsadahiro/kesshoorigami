@@ -6,10 +6,15 @@
        @mouseup="mouseUp($event)"
        style="border:solid 1px #000000"
        >
-    <face v-for="(f,i) in F" :points="points(f)" :faceup="faceup && faceup[i]"></face>
+    <g v-if="F">
+    <face v-for="(f,i) in F" :id="i" :points="points(f)" :covers="coverOf(i)" :direction="directions && directions[i]" :faceup="faceup && faceup[i]"></face>
     <edge v-if="subdivided && !folded" v-for="(e,i) in E" :edge="edge(i)"></edge>
+    </g>
   </svg><br/>
-  <v-btn @click="makeTriangles(2)">triangle</v-btn>
+  <v-checkbox v-model="fromAbove" label="see from Above"> </v-checkbox>
+  <v-btn @click="makeSquares(5,5)">squares</v-btn>
+  <v-btn @click="makeTriangles(3)">triangle</v-btn>
+  <v-btn @click="makeTriHex(3)">HexTri</v-btn>
   <v-btn v-if="!subdivided" @click="subdivide"> subdivide </v-btn>
   <v-btn v-if="subdivided && !folded" @click="foldAll()"> fold </v-btn>
   <v-btn v-if="subdivided && folded" @click="folded=false"> unfold </v-btn>
@@ -36,14 +41,13 @@ export default {
 	    faceup:null,//表向き: true, 裏向き: false,
 	    cover:null,//上に来る面のindex
 	    lower:null,//下に来る面のindex
-	    oV: null,
-	    oE: null,
-	    oF: null,
-	    exp: 100,
+	    fromAbove: true,
+	    oV: null,// original vertices
+	    oE: null,// original edges
+	    oF: null,// original faces
 	    contract: 100,
 	    prevContract: 100,
 	    angle: 0,
-	    trajectory:null,
 	    foldedV:null,
 	    folded:false,
 	    Tree:null,
@@ -53,6 +57,7 @@ export default {
 	    viewY: 0,
 	    prevX: 0,
 	    prevY: 0,
+	    ratio: 1.0,
 	}
     },
     watch:{
@@ -109,10 +114,18 @@ export default {
 		for (let v of vset){
 		    let vertex = {x: c*this.oV[v].x + (1-c)*m.x,
 				  y: c*this.oV[v].y + (1-c)*m.y}
-		    let theta = this.directions[i]*Math.PI*this.angle/180
-		    vertex = {x: (vertex.x-m.x)*Math.cos(theta) - (vertex.y-m.y)*Math.sin(theta) + m.x,
-			      y: (vertex.x-m.x)*Math.sin(theta) + (vertex.y-m.y)*Math.cos(theta) + m.y}
-		    this.V.splice(v,1,vertex)
+		    let theta = Math.PI*this.angle/180
+		    if (this.directions[i] == 1){
+			vertex = {x: (vertex.x-m.x)*Math.cos(theta) - (vertex.y-m.y)*Math.sin(theta) + m.x,
+				  y: (vertex.x-m.x)*Math.sin(theta) + (vertex.y-m.y)*Math.cos(theta) + m.y}
+			this.V.splice(v,1,vertex)
+		    }
+		    else{
+			theta = -Math.acos(Math.cos(theta))
+			vertex = {x: (vertex.x-m.x)*Math.cos(theta) - (vertex.y-m.y)*Math.sin(theta) + m.x,
+				  y: (vertex.x-m.x)*Math.sin(theta) + (vertex.y-m.y)*Math.cos(theta) + m.y}
+			this.V.splice(v,1,vertex)
+		    }
 		}
 	    }
 	    if (this.folded){
@@ -122,6 +135,14 @@ export default {
     },
     
     computed:{
+	exp:{
+	    get(){
+		return this.$store.state.exp;
+	    },
+	    set(exp){
+		this.$store.commit('setExp',exp);
+	    }
+	},
 	adjList(){ // 面と面が辺を共有するとき、隣接すると考える。
 	    let A = [];
 	    for (let i in this.F){
@@ -133,7 +154,6 @@ export default {
 		}
 		A.push(R);
 	    }
-	    //console.log(A)
 	    return A;
 	},
     },
@@ -210,6 +230,7 @@ export default {
 	dist(p,q){
 	    return Math.sqrt((p.x-q.x)*(p.x-q.x) + (p.y-q.y)*(p.y-q.y));
 	},
+	
 	points(f){
 	    let seq = []
 	    let pts = ""
@@ -243,7 +264,37 @@ export default {
 	    }
 	    return pts;
 	},
-	
+	coverOf(fidx){
+	    if (this.fromAbove && this.cover ){
+		let coverPoints = [];
+		for (let c of this.cover[fidx]){
+		    coverPoints.push(this.points(this.F[c]))
+		}
+		return coverPoints;
+	    }
+	    else if (this.lower){
+		let coverPoints = [];
+		for (let c of this.lower[fidx]){
+		    coverPoints.push(this.points(this.F[c]))
+		}
+		return coverPoints;
+	    }
+	    else{
+		return [];
+	    }
+	},
+	lowerCoverOf(fidx){
+	    if (this.cover){
+		let coverPoints = [];
+		for (let c of this.lower[fidx]){
+		    coverPoints.push(this.points(this.F[c]))
+		}
+		return coverPoints;
+	    }
+	    else{
+		return [];
+	    }
+	},
 	directFaces(){
 	    let directions =[]
 	    let directed = []
@@ -257,6 +308,7 @@ export default {
 	    
 	    let newBoundary = []
 	    while(boundary.length > 0){
+		console.log(boundary)
 		for (let b of boundary){
 		    for (let n of this.adjList[b]){
 			if (!directed[n]){
@@ -324,12 +376,11 @@ export default {
 		let fidx = ancE.indexOf(1*eidx)
 		let sidx = ancE.lastIndexOf(1*eidx)
 
-		
 		if (fidx!=sidx){
 		    let fFaceIndex = F.findIndex((f)=>(f.indexOf(fidx)>=0))
 		    let sFaceIndex = F.findIndex((f)=>(f.indexOf(sidx)>=0))
 		    //console.log(fFaceIndex,sFaceIndex)
-		    console.log(fFaceIndex, ":", this.directions[fFaceIndex], sFaceIndex, ":", this.directions[sFaceIndex]);
+		    //console.log(fFaceIndex, ":", this.directions[fFaceIndex], sFaceIndex, ":", this.directions[sFaceIndex]);
 		    let vec1 = {x:this.V[this.E[eidx][1]].x - this.V[this.E[eidx][0]].x,
 				y:this.V[this.E[eidx][1]].y - this.V[this.E[eidx][0]].y}
 		    let mcenter = this.mCenter(this.F[fFaceIndex]);
@@ -338,8 +389,8 @@ export default {
 		    let leftside = vec1.x*vec2.y-vec1.y*vec2.x;
 		    let edge0 = [E[fidx][0], E[sidx][0]]
 		    let edge1 = [E[fidx][1], E[sidx][1]]
-		    console.log(vec1,vec2);
-		    console.log(leftside);
+		    //console.log(vec1,vec2);
+		    //console.log(leftside);
 		    //console.log("newedge", ancV[E[fidx][0]], ancV[E[fidx][1]])
 		    E.push(edge0)
 		    mountain.push(this.directions[fFaceIndex]*leftside > 0 ? true : false);
@@ -358,29 +409,57 @@ export default {
 	    this.F = F.concat(vFaces.filter((x)=>x.length>2)); // ここ変です。
 	    this.mountain = mountain;
 
+	    let alpha = 0;
+	    let beta = 0;
+	    for (let fidx in  this.F){
+		let f = this.F[fidx]
+		if (this.directions[fidx]==1){
+		    alpha = this.lenProj(this.mCenter(f), this.E[f[0]])
+		    //console.log(alpha)
+		    break;
+		}
+	    }
+	    for (let fidx in  this.F){
+		let f = this.F[fidx]
+		if (this.directions[fidx]==-1){
+		    beta = this.lenProj(this.mCenter(f), this.E[f[0]])
+		    //console.log(beta)
+		    break;
+		}
+	    }
+	    this.ratio = alpha/beta;
+	    console.log("ratio:", this.ratio);
+	    
 	    //console.log(this.Tree)
 	    this.Tree = this.makeTree();
 	    this.subdivided = true
 	    this.makeCoverRelation();
-      },
+	    //console.log(this.directions)
+	},
 
-      mCenter(f){
-	  const V = []
-	  let sum = {x:0,y:0}
-	  for (let e of f){
-	      for (let v of this.E[e]){
-		  if (V.indexOf(v)<0){
-		      V.push(v)
-		      sum.x += this.V[v].x
-		      sum.y += this.V[v].y
-		      //console.log(v,this.V[v].x, this.V[v].y)
-		  }
-	      }
-	  }
-	  //console.log(V.length)
-	  return {x: sum.x/V.length, y: sum.y/V.length}
-      },
-      
+	lenProj(p,e){
+	    console.log(p,e)
+	    let q = {x:(this.V[e[0]].x+this.V[e[1]].x)/2, y:(this.V[e[0]].y+this.V[e[1]].y)/2};
+	    return this.dist(p,q);
+	},
+
+	mCenter(f){
+	    const V = []
+	    let sum = {x:0,y:0}
+	    for (let e of f){
+		for (let v of this.E[e]){
+		    if (V.indexOf(v)<0){
+			V.push(v)
+			sum.x += this.V[v].x
+			sum.y += this.V[v].y
+			//console.log(v,this.V[v].x, this.V[v].y)
+		    }
+		}
+	    }
+	    //console.log(V.length)
+	    return {x: sum.x/V.length, y: sum.y/V.length}
+	},
+	
 	isAdjacent: function(i,j){
 	    if (i==j){
 		return false
@@ -490,67 +569,7 @@ export default {
 	},
 
 	    
-	makeTriangles(n){
-	    const V=[]
-	    const coefs = []
-	    for (let a=-n; a<=n; a++){
-		for (let b=-n; b<=n; b++){
-		    if (Math.abs(a+b)<=n){
-			V.push({x: a+b/2, y: b*Math.sqrt(3)/2})
-			coefs.push({a:a, b:b})
-		    }
-		}
-	    }
-	    const E=[]
-	    for (let p in coefs){
-		//for (let q=p+1; q < coefs.length; q++){
-		for (let q in coefs){
-		    if (p >= q) continue;
-		    if (Math.abs(coefs[p].a-coefs[q].a)==1 && coefs[p].b == coefs[q].b){
-			E.push([1*p,1*q]);
-		    }
-		    if (Math.abs(coefs[p].b-coefs[q].b)==1 && coefs[p].a == coefs[q].a){
-			E.push([1*p,1*q]);
-		    }
-		    if (coefs[p].b-coefs[q].b == 1 && coefs[q].a - coefs[p].a == 1){
-			E.push([1*p,1*q]);
-		    }
-		    if (coefs[p].b-coefs[q].b == -1 && coefs[q].a - coefs[p].a == -1){
-			E.push([1*p,1*q]);
-		    }
-		}
-	    }
-	    console.log(E)
-	    const F = [];
-	    for (let a in E){
-		for (let b in E){
-		    if (a >= b) continue
-		    if (E[a][1] == E[b][0] ){
-			let min = Math.min(E[a][0],E[b][1])
-			let max = Math.max(E[a][0],E[b][1])
-			for (let c in E){
-			    if ((E[c][0]==min && E[c][1]==max) || (E[c][1]==min && E[c][0]==max)){
-				F.push([a,b,c]);
-			    }
-			}
-		    }
-		    if (E[a][0] == E[b][1] ){
-			let min = Math.min(E[a][1],E[b][0])
-			let max = Math.max(E[a][1],E[b][0])
-			for (let c in E){
-			    if ((E[c][0]==min && E[c][1]==max) || (E[c][1]==min && E[c][0]==max)){
-				F.push([a,b,c]);
-			    }
-			}
-		    }
-		}
-	    }
-	    console.log(F)
-	    this.V = V;
-	    this.E = E;
-	    this.F = F;
-	},
-
+	
 	makeTree(){
 	    let tree =[]
 	    let inTree = []
@@ -627,8 +646,28 @@ export default {
 	    console.log("cover",cover)
 	    console.log("lower",lower);
 	},
+
+	init(){
+	    this.V=null;
+	    this.E=null;
+	    this.F=null;
+	    this.mountain = null;
+	    this.faceup = null;
+	    this.directions = null;
+	    this.subdivided = false;
+	    this.folded = false;
+	    this.cover=null;
+	    this.lower=null;
+	    this.fromAbove=true;
+	    this.oV = null,// original vertices
+	    this.oE = null,// original edges
+	    this.oF = null,// original faces
+	    this.contract = 100;
+	    this.angle = 0;
+	},
 	
-      makeSquares(m,n){
+	makeSquares(m,n){
+	  this.init();  
 
 	  let mdist = function(p,q){
 	      return Math.abs(p.x-q.x) + Math.abs(p.y-q.y)
@@ -678,11 +717,175 @@ export default {
 	  console.log(F.length);
       },
 
-  },
+	makeTriHex(n){
+	    this.init();
+	    const V=[]
+	    const coefs = []
+	    for (let a=-n; a<=n; a++){
+		for (let b=-n; b<=n; b++){
+		    if (Math.abs(a+b)<=n && !(Math.abs(a%2)==0 && Math.abs(b%2)==0)){
+			V.push({x: a+b/2, y: b*Math.sqrt(3)/2})
+			coefs.push({a:a, b:b})
+		    }
+		}
+	    }
+	    const E=[]
+	    
+	    for (let p in coefs){
+		//for (let q=p+1; q < coefs.length; q++){
+		for (let q in coefs){
+		    if (p >= q) continue;
+		    if (Math.abs(coefs[p].a-coefs[q].a)==1 && coefs[p].b == coefs[q].b){
+			E.push([1*p,1*q]);
+		    }
+		    if (Math.abs(coefs[p].b-coefs[q].b)==1 && coefs[p].a == coefs[q].a){
+			E.push([1*p,1*q]);
+		    }
+		    if (coefs[p].b-coefs[q].b == 1 && coefs[q].a - coefs[p].a == 1){
+			E.push([1*p,1*q]);
+		    }
+		    if (coefs[p].b-coefs[q].b == -1 && coefs[q].a - coefs[p].a == -1){
+			E.push([1*p,1*q]);
+		    }
+		}
+	    }
+	    //console.log(E)
 
-    created(){
-	this.makeSquares(5,5);
-    },
+	    const F = [];
+	    for (let a=-n; a<=n; a++){
+		for (let b=-n; b<=n; b++){
+		    if (Math.abs(a+b)<=n && (Math.abs(a%2)==0 && Math.abs(b%2)==0)){
+			const surrounding = [{a:1,b:0}, {a:0,b:1}, {a:-1,b:1}, {a:-1,b:0}, {a:0,b:-1}, {a:1,b:-1}]
+			const face = []
+			for (let i =0; i<6; i++){
+			    //console.log(a,b,":",i)
+			    let p = {a: (1*surrounding[i].a + 1*a), b: (1*surrounding[i].b + 1*b)}
+			    let q = {a: (1*surrounding[(i+1)%6].a + 1*a), b: (1*surrounding[(i+1)%6].b + 1*b)}
+			    let v = {x: 1*p.a+p.b/2, y: 1*p.b*Math.sqrt(3)/2}
+			    let w = {x: 1*q.a+q.b/2, y: 1*q.b*Math.sqrt(3)/2}
+			    //console.log(surrounding[i],i)
+			    //console.log(surrounding[(i+1)%6], (i+1)%6)
+			    //console.log(p,q)
+			    //console.log({x:w.x-v.x, y:w.y-v.y})
+			    let vidx = V.findIndex( g => Math.sqrt((v.x-g.x)*(v.x-g.x) + (v.y-g.y)*(v.y-g.y)) < 0.01)
+			    let widx = V.findIndex( g => Math.sqrt((w.x-g.x)*(w.x-g.x) + (w.y-g.y)*(w.y-g.y)) < 0.01)
+			    let eidx = -1
+			    if (vidx >= 0 && widx >= 0){
+				let s = E.findIndex( e => (e[0]==vidx && e[1]==widx) )
+				let t = E.findIndex( e => e[0]==widx && e[1]==vidx)
+				if (s >= 0){
+				    eidx = s
+				}
+				else if (t >= 0){
+				    eidx = t
+				}
+			    }
+			    if (eidx >= 0){
+				face.push(eidx);
+				//console.log(face)
+			    }
+			}
+			if (face.length == 6){
+			    F.push(face)
+			}
+		    }
+		}
+	    }
+
+
+	    for (let a in E){
+		for (let b in E){
+		    if (a >= b) continue
+		    if (E[a][1] == E[b][0] ){
+			let min = Math.min(E[a][0],E[b][1])
+			let max = Math.max(E[a][0],E[b][1])
+			for (let c in E){
+			    if ((E[c][0]==min && E[c][1]==max) || (E[c][1]==min && E[c][0]==max)){
+				F.push([1*a,1*b,1*c]);
+			    }
+			}
+		    }
+		    if (E[a][0] == E[b][1] ){
+			let min = Math.min(E[a][1],E[b][0])
+			let max = Math.max(E[a][1],E[b][0])
+			for (let c in E){
+			    if ((E[c][0]==min && E[c][1]==max) || (E[c][1]==min && E[c][0]==max)){
+				F.push([1*a,1*b,1*c]);
+			    }
+			}
+		    }
+		}
+	    }
+	    //console.log(F)
+	    this.V = V;
+	    this.E = E;
+	    this.F = F;
+	    console.log(this.F);
+	    console.log(this.E);
+	    console.log(this.adjList);
+	},
+
+	makeTriangles(n){
+	    this.init();
+	    const V=[]
+	    const coefs = []
+	    for (let a=-n; a<=n; a++){
+		for (let b=-n; b<=n; b++){
+		    if (Math.abs(a+b)<=n){
+			V.push({x: a+b/2, y: b*Math.sqrt(3)/2})
+			coefs.push({a:a, b:b})
+		    }
+		}
+	    }
+	    const E=[]
+	    for (let p in coefs){
+		for (let q in coefs){
+		    if (p >= q) continue;
+		    if (Math.abs(coefs[p].a-coefs[q].a)==1 && coefs[p].b == coefs[q].b){
+			E.push([1*p,1*q]);
+		    }
+		    if (Math.abs(coefs[p].b-coefs[q].b)==1 && coefs[p].a == coefs[q].a){
+			E.push([1*p,1*q]);
+		    }
+		    if (coefs[p].b-coefs[q].b == 1 && coefs[q].a - coefs[p].a == 1){
+			E.push([1*p,1*q]);
+		    }
+		    if (coefs[p].b-coefs[q].b == -1 && coefs[q].a - coefs[p].a == -1){
+			E.push([1*p,1*q]);
+		    }
+		}
+	    }
+	    console.log(E)
+	    const F = [];
+	    for (let a in E){
+		for (let b in E){
+		    if (a >= b) continue
+		    if (E[a][1] == E[b][0] ){
+			let min = Math.min(E[a][0],E[b][1])
+			let max = Math.max(E[a][0],E[b][1])
+			for (let c in E){
+			    if ((E[c][0]==min && E[c][1]==max) || (E[c][1]==min && E[c][0]==max)){
+				F.push([a,b,c]);
+			    }
+			}
+		    }
+		    if (E[a][0] == E[b][1] ){
+			let min = Math.min(E[a][1],E[b][0])
+			let max = Math.max(E[a][1],E[b][0])
+			for (let c in E){
+			    if ((E[c][0]==min && E[c][1]==max) || (E[c][1]==min && E[c][0]==max)){
+				F.push([a,b,c]);
+			    }
+			}
+		    }
+		}
+	    }
+	    console.log(F)
+	    this.V = V;
+	    this.E = E;
+	    this.F = F;
+	},
+  },
 
 
     components: {
