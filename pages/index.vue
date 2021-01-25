@@ -9,6 +9,8 @@
     <g v-if="F">
     <face v-for="(f,i) in F" :id="i" :points="points(f)" :covers="coverOf(i)" :direction="directions && directions[i]" :faceup="faceup && faceup[i]"></face>
     <edge v-if="subdivided && !folded" v-for="(e,i) in E" :edge="edge(i)"></edge>
+    <!--<circle v-for="f in F" :cx="mCenter(f).x*exp+exp" :cy="mCenter(f).y*exp+exp" r="3" fill="black"></circle>
+    <line v-if="Tree && F" v-for="(f,i) in F" :x1="mCenter(f).x*exp+exp" :y1="mCenter(f).y*exp+exp" :x2="mCenter(F[Tree[i]]).x*exp+exp" :y2="mCenter(F[Tree[i]]).y*exp+exp" stroke="black"></line>-->
     </g>
   </svg><br/>
   <v-checkbox v-model="fromAbove" label="see from Above"> </v-checkbox>
@@ -21,6 +23,7 @@
   <v-slider :label="'縮小:'+contract" v-model="contract" min="10" max="100"></v-slider>
   <v-slider :label="'回転:'+angle" v-model="angle" min="-90" max="90"></v-slider>
   <v-slider label="スケール" v-model="exp" min="50" max="200"></v-slider>
+  {{cover}}
 </div>
 </template>
 
@@ -38,6 +41,7 @@ export default {
             F:null,//面データ 辺のindexの集合
 	    mountain:null, //山折り:true 谷折り:false
 	    directions:null,//各面が順: true , 逆: false
+	    numEdges:null,
 	    faceup:null,//表向き: true, 裏向き: false,
 	    cover:null,//上に来る面のindex
 	    lower:null,//下に来る面のindex
@@ -58,11 +62,16 @@ export default {
 	    prevX: 0,
 	    prevY: 0,
 	    ratio: 1.0,
+	    numPrimal: null,
+	    numDual: null,
+	    rPrimal: null,
+	    rDual: null,
 	}
     },
     watch:{
 	contract:function(){
 	    if (!this.subdivided) return;
+	    let c=this.contract/100;
 	    for (let i in this.oF){
 		let vset = []
 		for (let e of this.oF[i]){
@@ -78,7 +87,7 @@ export default {
 		    sum.y += this.V[v].y
 		}
 		let m={x:sum.x/vset.length, y:sum.y/vset.length}
-		let c=this.contract/100;
+		/*
 		for (let v of vset){
 		    let vertex = {x: c*this.oV[v].x + (1-c)*m.x,
 				  y: c*this.oV[v].y + (1-c)*m.y}
@@ -86,6 +95,33 @@ export default {
 		    vertex = {x: (vertex.x-m.x)*Math.cos(theta) - (vertex.y-m.y)*Math.sin(theta) + m.x,
 			      y: (vertex.x-m.x)*Math.sin(theta) + (vertex.y-m.y)*Math.cos(theta) + m.y}
 		    this.V.splice(v,1,vertex)
+		}
+		*/
+		for (let v of vset){
+		    //let vertex = {x: c*this.oV[v].x + (1-c)*m.x,
+		    //		  y: c*this.oV[v].y + (1-c)*m.y}
+		    let vertex = {x: this.oV[v].x,  y: this.oV[v].y}
+		    let theta = Math.PI*this.angle/180
+		    if (this.directions[i] == 1){
+			vertex = {x: c*(vertex.x-m.x)*Math.cos(theta) - c*(vertex.y-m.y)*Math.sin(theta) + m.x,
+				  y: c*(vertex.x-m.x)*Math.sin(theta) + c*(vertex.y-m.y)*Math.cos(theta) + m.y}
+			this.V.splice(v,1,vertex)
+		    }
+		    else{
+			console.log(this.rPrimal,this.rDual)
+			let beta = Math.atan(Math.tan(Math.PI/this.numDual)/Math.tan(Math.PI/this.numPrimal)*Math.tan(theta))
+			let R = 1;
+			if (Math.abs(beta)<0.0001){
+			    R = c
+			}
+			else{
+			    R = c*this.rPrimal * Math.cos(Math.PI/this.numPrimal)*Math.sin(theta)/(Math.cos(Math.PI/this.numDual)*Math.sin(beta))/this.rDual
+			}
+			console.log(beta,R)
+			vertex = {x: c*((vertex.x-m.x)*Math.cos(-beta) - (vertex.y-m.y)*Math.sin(-beta)) + m.x,
+				  y: c*((vertex.x-m.x)*Math.sin(-beta) + (vertex.y-m.y)*Math.cos(-beta)) + m.y}
+			this.V.splice(v,1,vertex)
+		    }
 		}
 	    }
 	    if (this.folded){
@@ -95,6 +131,7 @@ export default {
 	angle(){
 	    if (!this.subdivided) return;
 	    //for (let f of this.oF){
+	    let c=this.contract/100;
 	    for (let i in this.oF){
 		let vset = []
 		for (let e of this.oF[i]){
@@ -110,20 +147,25 @@ export default {
 		    sum.y += this.V[v].y
 		}
 		let m={x:sum.x/vset.length, y:sum.y/vset.length}
-		let c=this.contract/100;
 		for (let v of vset){
-		    let vertex = {x: c*this.oV[v].x + (1-c)*m.x,
-				  y: c*this.oV[v].y + (1-c)*m.y}
+		    //let vertex = {x: c*this.oV[v].x + (1-c)*m.x,
+		    //		  y: c*this.oV[v].y + (1-c)*m.y}
+		    let vertex = {x: this.oV[v].x,  y: this.oV[v].y}
 		    let theta = Math.PI*this.angle/180
 		    if (this.directions[i] == 1){
-			vertex = {x: (vertex.x-m.x)*Math.cos(theta) - (vertex.y-m.y)*Math.sin(theta) + m.x,
-				  y: (vertex.x-m.x)*Math.sin(theta) + (vertex.y-m.y)*Math.cos(theta) + m.y}
+			vertex = {x: c*(vertex.x-m.x)*Math.cos(theta) - c*(vertex.y-m.y)*Math.sin(theta) + m.x,
+				  y: c*(vertex.x-m.x)*Math.sin(theta) + c*(vertex.y-m.y)*Math.cos(theta) + m.y}
 			this.V.splice(v,1,vertex)
 		    }
 		    else{
-			theta = -Math.acos(Math.cos(theta))
-			vertex = {x: (vertex.x-m.x)*Math.cos(theta) - (vertex.y-m.y)*Math.sin(theta) + m.x,
-				  y: (vertex.x-m.x)*Math.sin(theta) + (vertex.y-m.y)*Math.cos(theta) + m.y}
+			//let beta = -Math.acos(Math.cos(theta))
+			//console.log(this.numPrimal,this.numDual)
+			console.log(this.rPrimal,this.rDual)
+			let beta = Math.atan(Math.tan(Math.PI/this.numDual)/Math.tan(Math.PI/this.numPrimal)*Math.tan(theta))
+			let R = c*this.rPrimal * Math.cos(Math.PI/this.numPrimal)*Math.sin(theta)/(Math.cos(Math.PI/this.numDual)*Math.sin(beta))
+			console.log(beta,R)
+			vertex = {x: R*((vertex.x-m.x)*Math.cos(-beta) - (vertex.y-m.y)*Math.sin(-beta))/this.rDual + m.x,
+				  y: R*((vertex.x-m.x)*Math.sin(-beta) + (vertex.y-m.y)*Math.cos(-beta))/this.rDual + m.y}
 			this.V.splice(v,1,vertex)
 		    }
 		}
@@ -264,6 +306,7 @@ export default {
 	    }
 	    return pts;
 	},
+	
 	coverOf(fidx){
 	    if (this.fromAbove && this.cover ){
 		let coverPoints = [];
@@ -305,6 +348,7 @@ export default {
 		directions.push(1)
 	    }
 	    directed[0]=true
+	    this.numPrimal = this.F[0].length;
 	    
 	    let newBoundary = []
 	    while(boundary.length > 0){
@@ -321,9 +365,14 @@ export default {
 		boundary = newBoundary.slice(0,newBoundary.length);
 		newBoundary = []
 	    }
+	    for (let i in directions){
+		if (directions[i]==-1){
+		    this.numDual = this.F[i].length
+		    break;
+		}
+	    }
 	    this.directions = directions;
 	    console.log("directed")
-	    console.log(directions)
 	},
 	
 	subdivide(){
@@ -409,6 +458,17 @@ export default {
 	    this.F = F.concat(vFaces.filter((x)=>x.length>2)); // ここ変です。
 	    this.mountain = mountain;
 
+	    this.rPrimal = this.dist(this.mCenter(this.oF[0]), this.oV[this.oE[this.oF[0][0]][0]]);
+	    console.log(this.rPrimal);
+	    console.log(this.rDual);
+	    for (let i in this.oF){
+		if (this.directions[i]==-1){
+		    this.rDual = this.dist(this.mCenter(this.oF[i]), this.oV[this.oE[this.oF[i][0]][0]]);
+		    //console.log(this.rDual);
+		    break;
+		}
+	    }
+	    /*
 	    let alpha = 0;
 	    let beta = 0;
 	    for (let fidx in  this.F){
@@ -429,7 +489,7 @@ export default {
 	    }
 	    this.ratio = alpha/beta;
 	    console.log("ratio:", this.ratio);
-	    
+	    */
 	    //console.log(this.Tree)
 	    this.Tree = this.makeTree();
 	    this.subdivided = true
@@ -617,7 +677,7 @@ export default {
 		boundary = newBoundary.slice(0,newBoundary.length);
 		newBoundary = []
 	    }
-	    console.log(tree)
+	    console.log("tree",tree)
 	    return tree
 	},
 
